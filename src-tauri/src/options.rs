@@ -16,7 +16,11 @@ pub struct Options {
     font_size: f64,
     /// What new connections start out with, as a WHATWG label.
     encoding: String,
-    /// Opacity of the terminal background in percent; the text stays solid.
+    /// Terminal colours, as `#rrggbb`.
+    foreground_color: String,
+    background_color: String,
+    /// Opacity of the terminal background colour in percent, laid over the
+    /// window colour; the text stays solid.
     background_opacity: u8,
 }
 
@@ -27,6 +31,8 @@ impl Default for Options {
                 .to_owned(),
             font_size: 10.5,
             encoding: "utf-8".to_owned(),
+            foreground_color: "#000000".to_owned(),
+            background_color: "#ffffff".to_owned(),
             background_opacity: 100,
         }
     }

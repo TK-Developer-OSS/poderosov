@@ -478,8 +478,12 @@ impl Forwarder {
             };
             // asked again: the transfer may have started while we were waiting
             if lock_transfer(&self.transfer).sender.is_some() {
-                self.feed_transfer(&batch);
-                continue;
+                // what comes after the end of the transfer, e.g. the prompt, goes on screen
+                let used = self.feed_transfer(&batch);
+                batch.drain(..used);
+                if batch.is_empty() {
+                    continue;
+                }
             }
             // One message per packet would swamp the webview during a flood
             // of output, so whatever else is already waiting goes out with it.
@@ -513,12 +517,14 @@ impl Forwarder {
         self.app.state::<Sessions>().lock().remove(&self.id);
     }
 
-    fn feed_transfer(&self, input: &[u8]) {
-        let steps = match lock_transfer(&self.transfer).sender.as_mut() {
-            Some(sender) => sender.receive(input, Instant::now()),
-            None => return,
+    /// Hands output to the transfer; returns how much of it the transfer used.
+    fn feed_transfer(&self, input: &[u8]) -> usize {
+        let (steps, used) = match lock_transfer(&self.transfer).sender.as_mut() {
+            Some(sender) => sender.receive_until_over(input, Instant::now()),
+            None => return 0,
         };
         self.apply(steps);
+        used
     }
 
     fn tick_transfer(&self) {

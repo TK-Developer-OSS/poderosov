@@ -1,6 +1,7 @@
 // A release build on Windows should not open a console window next to the GUI.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod history;
 mod options;
 mod sessions;
 
@@ -11,6 +12,8 @@ fn main() {
         .manage(sessions::Sessions::default())
         .manage(sessions::Passwords::default())
         .invoke_handler(tauri::generate_handler![
+            history::history_load,
+            history::history_save,
             options::options_load,
             options::options_save,
             sessions::password_remembered,

@@ -24,6 +24,8 @@
         <h1>新規Telnet/SSH接続</h1>
         <fieldset id="login-fields">
           <div class="fields">
+            <label for="login-history">接続履歴</label>
+            <select id="login-history"></select>
             <label for="login-host">ホスト</label>
             <input id="login-host" required autocomplete="off" spellcheck="false" />
             <label for="login-protocol">プロトコル</label>
@@ -106,7 +108,11 @@
             <input id="options-font" list="font-suggestions" required spellcheck="false" />
             <label for="options-size">サイズ (pt)</label>
             <input id="options-size" type="number" min="6" max="48" step="0.5" required />
-            <label for="options-opacity">背景の不透明度</label>
+            <label for="options-foreground">文字色</label>
+            <input id="options-foreground" type="color" />
+            <label for="options-background">背景色</label>
+            <input id="options-background" type="color" />
+            <label for="options-opacity">背景の濃さ</label>
             <div class="range-row">
               <input id="options-opacity" type="range" min="30" max="100" step="5" />
               <output id="options-opacity-value" for="options-opacity"></output>

@@ -10,7 +10,20 @@ const fileDialog = window.__TAURI__.dialog;
 // to be drawn. It is told what has been drawn in steps of this many bytes.
 const ACK_BYTES = 32 * 1024;
 
-const LAST_LOGIN_KEY = 'poderosov.lastLogin';
+/** How many past connections the login dialog offers. */
+const HISTORY_SIZE = 20;
+
+/** Past connections, most recent first, as the backend keeps them (never with a password). */
+let history = await invoke('history_load');
+// earlier versions kept only the last login, in the webview's storage
+if (history.length === 0) {
+  try {
+    const last = JSON.parse(localStorage.getItem('poderosov.lastLogin'));
+    if (last?.host) history = [last];
+  } catch {
+    // nothing usable there
+  }
+}
 
 // What the remote side may read and write text as: WHATWG label, name shown.
 const ENCODINGS = [
@@ -30,20 +43,32 @@ function terminalOptions() {
     ...TERMINAL_OPTIONS,
     fontFamily: options.fontFamily,
     fontSize: pointsToPixels(options.fontSize),
+    theme: terminalTheme(options),
   };
 }
 
-/**
- * Makes everything behind the text this opaque, 30 to 100 percent.
- * The terminal card is drawn over the window background, so each layer gets
- * the alpha a with 1 - (1 - a)^2 = opacity: together they come to the opacity chosen.
- */
-function applyBackgroundOpacity(percent) {
-  const alpha = 1 - Math.sqrt(1 - percent / 100);
-  document.documentElement.style.setProperty('--chrome-alpha', String(alpha));
+/** The palette with the user's text colour; the background is painted behind the terminal. */
+function terminalTheme({ foregroundColor, backgroundColor }) {
+  return {
+    ...TERMINAL_OPTIONS.theme,
+    foreground: foregroundColor,
+    cursor: foregroundColor,
+    cursorAccent: backgroundColor,
+  };
 }
 
-applyBackgroundOpacity(options.backgroundOpacity);
+/** Shows colours in every terminal; used for the saved options and for the dialog's preview. */
+function applyColors(colors) {
+  const { backgroundColor, backgroundOpacity } = colors;
+  const red = parseInt(backgroundColor.slice(1, 3), 16);
+  const green = parseInt(backgroundColor.slice(3, 5), 16);
+  const blue = parseInt(backgroundColor.slice(5, 7), 16);
+  document.documentElement.style.setProperty(
+    '--terminal-bg',
+    `rgb(${red} ${green} ${blue} / ${backgroundOpacity / 100})`,
+  );
+  for (const session of sessions.values()) session.terminal.options.theme = terminalTheme(colors);
+}
 
 const TERMINAL_OPTIONS = {
   cursorBlink: true,
@@ -106,6 +131,7 @@ const login = {
   dialog: $('login'),
   form: $('login-form'),
   fields: $('login-fields'),
+  history: $('login-history'),
   host: $('login-host'),
   port: $('login-port'),
   user: $('login-user'),
@@ -126,6 +152,8 @@ const optionsDialog = {
   form: $('options-form'),
   font: $('options-font'),
   size: $('options-size'),
+  foreground: $('options-foreground'),
+  background: $('options-background'),
   opacity: $('options-opacity'),
   opacityValue: $('options-opacity-value'),
   encoding: $('options-encoding'),
@@ -162,6 +190,8 @@ let active = null;
 /** The session the login dialog is waiting on, if any. */
 let connecting = null;
 let nextSessionId = 1;
+
+applyColors(options);
 
 class Session {
   constructor({ host, port, user, encoding }) {
@@ -434,7 +464,9 @@ new ResizeObserver(() => {
 function openLogin() {
   if (login.dialog.open) return;
   login.encoding.value = options.encoding;
-  restoreLastLogin();
+  fillHistoryList();
+  // the last connection, as Poderosa does
+  if (history.length) fillLogin(history[0]);
   updateAuthFields();
   showLoginMessage('');
   login.passphrase.value = '';
@@ -491,31 +523,38 @@ function describeFailure(failure) {
   return lines.join('\n');
 }
 
-/** The last connection's settings, without its secrets, prefill the dialog. */
-function restoreLastLogin() {
-  let last;
-  try {
-    last = JSON.parse(localStorage.getItem(LAST_LOGIN_KEY));
-  } catch {
-    return;
+/** Fills the dialog from a history entry. */
+function fillLogin(entry) {
+  login.host.value = entry.host ?? '';
+  login.port.value = entry.port ?? 22;
+  login.user.value = entry.user ?? '';
+  login.auth.value = entry.auth === 'publicKey' ? 'publicKey' : 'password';
+  login.keyPath.value = entry.keyPath ?? '';
+  if ([...login.term.options].some((option) => option.value === entry.term)) {
+    login.term.value = entry.term;
   }
-  if (!last) return;
-  login.host.value = last.host ?? '';
-  login.port.value = last.port ?? 22;
-  login.user.value = last.user ?? '';
-  login.auth.value = last.auth === 'publicKey' ? 'publicKey' : 'password';
-  login.keyPath.value = last.keyPath ?? '';
-  if ([...login.term.options].some((option) => option.value === last.term)) {
-    login.term.value = last.term;
+  if (ENCODINGS.some(([label]) => label === entry.encoding)) {
+    login.encoding.value = entry.encoding;
   }
-  if (ENCODINGS.some(([label]) => label === last.encoding)) {
-    login.encoding.value = last.encoding;
-  }
-  login.remember.checked = Boolean(last.remember);
+  login.remember.checked = Boolean(entry.remember);
+  login.passphrase.value = '';
 }
 
-function rememberLogin() {
-  const last = {
+function historyLabel(entry) {
+  const port = entry.port === 22 ? '' : `:${entry.port}`;
+  return `${entry.user}@${entry.host}${port}`;
+}
+
+function fillHistoryList() {
+  login.history.length = 0;
+  login.history.add(new Option(history.length ? '（履歴から選ぶ）' : '（履歴なし）', ''));
+  history.forEach((entry, index) => login.history.add(new Option(historyLabel(entry), String(index))));
+  login.history.disabled = history.length === 0;
+}
+
+/** Puts a successful login first in the history; no password or passphrase is kept. */
+function addToHistory() {
+  const entry = {
     host: login.host.value.trim(),
     port: Number(login.port.value),
     user: login.user.value.trim(),
@@ -525,7 +564,10 @@ function rememberLogin() {
     encoding: login.encoding.value,
     remember: login.remember.checked,
   };
-  localStorage.setItem(LAST_LOGIN_KEY, JSON.stringify(last));
+  const same = (other) =>
+    other.host === entry.host && other.port === entry.port && other.user === entry.user;
+  history = [entry, ...history.filter((other) => !same(other))].slice(0, HISTORY_SIZE);
+  invoke('history_save', { entries: history }).catch(reportError);
 }
 
 login.form.addEventListener('submit', async (event) => {
@@ -542,7 +584,6 @@ login.form.addEventListener('submit', async (event) => {
     login.auth.value === 'publicKey'
       ? { method: 'publicKey', keyPath: login.keyPath.value.trim(), passphrase: login.passphrase.value }
       : { method: 'password', password: login.passphrase.value };
-  rememberLogin();
 
   // The terminal exists before the connection so that the server can be told
   // its real size; it only gets a tab once the login has succeeded.
@@ -563,6 +604,7 @@ login.form.addEventListener('submit', async (event) => {
     if (hostKey.dialog.open) hostKey.dialog.close();
   }
 
+  addToHistory();
   login.passphrase.value = '';
   login.dialog.close();
   session.showTab();
@@ -586,6 +628,13 @@ login.dialog.addEventListener('cancel', (event) => {
 });
 login.dialog.addEventListener('close', () => active?.terminal.focus());
 login.auth.addEventListener('change', updateAuthFields);
+login.history.addEventListener('change', () => {
+  const entry = history[Number(login.history.value)];
+  if (!login.history.value || !entry) return;
+  fillLogin(entry);
+  updateAuthFields();
+  login.passphrase.focus();
+});
 for (const field of [login.host, login.port, login.user, login.keyPath]) {
   field.addEventListener('change', updateRememberedHint);
 }
@@ -605,6 +654,8 @@ function openOptions() {
   if (optionsDialog.dialog.open) return;
   optionsDialog.font.value = options.fontFamily;
   optionsDialog.size.value = options.fontSize;
+  optionsDialog.foreground.value = options.foregroundColor;
+  optionsDialog.background.value = options.backgroundColor;
   optionsDialog.opacity.value = options.backgroundOpacity;
   optionsDialog.opacityValue.value = `${options.backgroundOpacity}%`;
   optionsDialog.encoding.value = options.encoding;
@@ -612,11 +663,21 @@ function openOptions() {
   optionsDialog.dialog.showModal();
 }
 
-// The slider shows its effect at once; Cancel puts the saved value back.
-optionsDialog.opacity.addEventListener('input', () => {
-  optionsDialog.opacityValue.value = `${optionsDialog.opacity.value}%`;
-  applyBackgroundOpacity(Number(optionsDialog.opacity.value));
-});
+function dialogColors() {
+  return {
+    foregroundColor: optionsDialog.foreground.value,
+    backgroundColor: optionsDialog.background.value,
+    backgroundOpacity: Number(optionsDialog.opacity.value),
+  };
+}
+
+// Colours show their effect at once; Cancel puts the saved ones back.
+for (const field of [optionsDialog.foreground, optionsDialog.background, optionsDialog.opacity]) {
+  field.addEventListener('input', () => {
+    optionsDialog.opacityValue.value = `${optionsDialog.opacity.value}%`;
+    applyColors(dialogColors());
+  });
+}
 
 optionsDialog.form.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -624,7 +685,7 @@ optionsDialog.form.addEventListener('submit', async (event) => {
     fontFamily: optionsDialog.font.value.trim(),
     fontSize: Number(optionsDialog.size.value),
     encoding: optionsDialog.encoding.value,
-    backgroundOpacity: Number(optionsDialog.opacity.value),
+    ...dialogColors(),
   };
   try {
     await invoke('options_save', { options: changed });
@@ -643,8 +704,8 @@ optionsDialog.form.addEventListener('submit', async (event) => {
 });
 $('options-cancel').addEventListener('click', () => optionsDialog.dialog.close());
 optionsDialog.dialog.addEventListener('close', () => {
-  // whatever was saved, or the value from before a cancelled preview
-  applyBackgroundOpacity(options.backgroundOpacity);
+  // whatever was saved, or the colours from before a cancelled preview
+  applyColors(options);
   active?.terminal.focus();
 });
 $('open-options').addEventListener('click', openOptions);

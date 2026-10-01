@@ -89,11 +89,20 @@ impl XmodemSender {
 
     /// Handles bytes from the receiver.
     pub fn receive(&mut self, input: &[u8], now: Instant) -> Vec<Step> {
+        self.receive_until_over(input, now).0
+    }
+
+    /// Like [`Self::receive`], but also says how many bytes of `input` the
+    /// transfer used. Whatever follows the end of the transfer, such as the
+    /// shell prompt coming back, is the caller's to show.
+    pub fn receive_until_over(&mut self, input: &[u8], now: Instant) -> (Vec<Step>, usize) {
         let mut steps = Vec::new();
+        let mut used = 0;
         for &byte in input {
             if self.state == State::Over {
                 break;
             }
+            used += 1;
             if byte == CAN {
                 self.cancels += 1;
                 if self.cancels >= 2 {
@@ -126,7 +135,7 @@ impl XmodemSender {
                 _ => {}
             }
         }
-        steps
+        (steps, used)
     }
 
     /// Lets time pass: resends what went unanswered, or gives up.
@@ -317,6 +326,16 @@ mod tests {
         sender.receive(&[CRC_REQUEST], now);
         let steps = sender.receive(&[CAN, CAN], now);
         assert!(matches!(steps[..], [Step::Failed(_)]), "{steps:?}");
+    }
+
+    #[test]
+    fn what_follows_the_end_is_left_for_the_screen() {
+        let now = Instant::now();
+        let mut sender = XmodemSender::new(Vec::new(), now);
+        sender.receive(&[CRC_REQUEST], now);
+        let (steps, used) = sender.receive_until_over(b"\x06\r\n$ ", now);
+        assert_eq!(steps, [Step::Finished]);
+        assert_eq!(used, 1);
     }
 
     #[test]
