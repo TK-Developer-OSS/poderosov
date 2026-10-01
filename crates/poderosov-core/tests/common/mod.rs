@@ -1,8 +1,8 @@
 //! An SSH server to test against, running inside the test process.
 //!
 //! It stands in for a shell on a pty: greets with the terminal size it was
-//! given, echoes input, reports window changes, floods on Ctrl-F and logs out
-//! on Ctrl-D.
+//! given, echoes input, reports window changes, floods on Ctrl-F, receives an
+//! XMODEM upload on Ctrl-R and logs out on Ctrl-D.
 //! The keys under `tests/fixtures` are throwaways made for these tests.
 
 use std::net::SocketAddr;
@@ -24,6 +24,8 @@ pub const KEY_PASSPHRASE: &str = "poderosov-test";
 pub const CTRL_D: u8 = 0x04;
 /// Makes the server send [`flood`], as `cat` on a big file would.
 pub const CTRL_F: u8 = 0x06;
+/// Makes the server wait for an XMODEM upload, as `rx` would.
+pub const CTRL_R: u8 = 0x12;
 
 /// A few megabytes of numbered lines: more than every buffer between the
 /// server and the test put together.
@@ -75,12 +77,83 @@ impl server::Server for TestServer {
     type Handler = FakeShell;
 
     fn new_client(&mut self, _peer: Option<SocketAddr>) -> FakeShell {
-        FakeShell { size: (0, 0) }
+        FakeShell { size: (0, 0), receiving: None }
     }
 }
 
 struct FakeShell {
     size: (u32, u32),
+    receiving: Option<XmodemReceiver>,
+}
+
+/// The receiving end of XMODEM with CRC, like `rx`: checks each block,
+/// acknowledges it and, after EOT, reports what arrived.
+#[derive(Default)]
+struct XmodemReceiver {
+    pending: Vec<u8>,
+    file: Vec<u8>,
+    next_block: u8,
+}
+
+impl XmodemReceiver {
+    /// Handles input; `reply` sends to the client. Returns the report once the file is complete.
+    fn feed(
+        &mut self,
+        input: &[u8],
+        mut reply: impl FnMut(&[u8]) -> Result<(), russh::Error>,
+    ) -> Result<Option<String>, russh::Error> {
+        const BLOCK: usize = 3 + 128 + 2;
+        if self.next_block == 0 {
+            self.next_block = 1;
+        }
+        self.pending.extend_from_slice(input);
+        loop {
+            match self.pending.first() {
+                Some(0x04) => {
+                    reply(&[0x06])?;
+                    return Ok(Some(format!(
+                        "\r\nrx: received {} bytes, sum {}\r\n$ ",
+                        self.file.len(),
+                        checksum(&self.file)
+                    )));
+                }
+                Some(0x01) if self.pending.len() >= BLOCK => {
+                    let block: Vec<u8> = self.pending.drain(..BLOCK).collect();
+                    let payload = &block[3..131];
+                    let good = block[1] == self.next_block
+                        && block[2] == 255 - self.next_block
+                        && block[131..] == crc16(payload).to_be_bytes();
+                    if good {
+                        self.file.extend_from_slice(payload);
+                        self.next_block = self.next_block.wrapping_add(1);
+                        reply(&[0x06])?;
+                    } else {
+                        reply(&[0x15])?;
+                    }
+                }
+                Some(0x01) | None => return Ok(None),
+                Some(_) => {
+                    self.pending.remove(0);
+                }
+            }
+        }
+    }
+}
+
+fn crc16(data: &[u8]) -> u16 {
+    let mut crc: u16 = 0;
+    for &byte in data {
+        crc ^= u16::from(byte) << 8;
+        for _ in 0..8 {
+            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x1021 } else { crc << 1 };
+        }
+    }
+    crc
+}
+
+/// What the receiver reports, so that a test can check the file arrived intact.
+pub fn checksum(data: &[u8]) -> u64 {
+    data.iter().map(|&byte| u64::from(byte)).sum()
 }
 
 /// A failed login that, as with OpenSSH, leaves both methods open for another try.
@@ -168,7 +241,15 @@ impl server::Handler for FakeShell {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if data == [CTRL_D] {
+        if let Some(receiver) = self.receiving.as_mut() {
+            if let Some(report) = receiver.feed(data, |reply| session.data(channel, reply.to_vec()))? {
+                self.receiving = None;
+                session.data(channel, report.into_bytes())?;
+            }
+        } else if data == [CTRL_R] {
+            self.receiving = Some(XmodemReceiver::default());
+            session.data(channel, b"rx: waiting\r\nC".to_vec())?;
+        } else if data == [CTRL_D] {
             session.exit_status_request(channel, 0)?;
             session.eof(channel)?;
             session.close(channel)?;

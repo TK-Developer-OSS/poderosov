@@ -266,3 +266,46 @@ async fn a_flood_of_output_waits_for_a_slow_reader_and_arrives_intact() {
     session.write(b"ok\r".to_vec()).unwrap();
     read_until(&mut events, "ok\r").await;
 }
+
+#[tokio::test]
+async fn an_xmodem_upload_arrives_intact() {
+    use poderosov_core::xmodem::{BLOCK_SIZE, Step, XmodemSender};
+    use std::time::Instant;
+
+    let fixture = Fixture::new().await;
+    let (session, mut events) = fixture
+        .connect(password(), &Answer::new(true))
+        .await
+        .expect("login");
+    read_until(&mut events, "$ ").await;
+
+    let file: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
+    let mut sender = XmodemSender::new(file.clone(), Instant::now());
+    session.write(vec![common::CTRL_R]).unwrap();
+
+    // Plays the part the application has: server output goes to the sender,
+    // what the sender asks for goes back to the server.
+    let mut finished = false;
+    while !finished {
+        let event = tokio::time::timeout(Duration::from_secs(10), events.recv())
+            .await
+            .expect("the transfer stalled");
+        let Some(SessionEvent::Data(data)) = event else {
+            panic!("expected output, got {event:?}");
+        };
+        for step in sender.receive(&data, Instant::now()) {
+            match step {
+                Step::Send(bytes) => session.write(bytes).unwrap(),
+                Step::Progress { .. } => {}
+                Step::Finished => finished = true,
+                Step::Failed(reason) => panic!("transfer failed: {reason}"),
+            }
+        }
+    }
+
+    // the receiver sees the file padded out to whole blocks
+    let mut padded = file.clone();
+    padded.resize(file.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE, 0x1a);
+    let report = format!("received {} bytes, sum {}", padded.len(), common::checksum(&padded));
+    read_until(&mut events, &report).await;
+}

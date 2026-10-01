@@ -12,12 +12,45 @@ const ACK_BYTES = 32 * 1024;
 
 const LAST_LOGIN_KEY = 'poderosov.lastLogin';
 
+// What the remote side may read and write text as: WHATWG label, name shown.
+const ENCODINGS = [
+  ['utf-8', 'UTF-8'],
+  ['euc-jp', 'EUC-JP'],
+  ['shift_jis', 'Shift_JIS'],
+];
+
+/** Font and the other settings of the options dialog, as the backend keeps them. */
+let options = await invoke('options_load');
+
+/** Font sizes are set in points, as in Poderosa; the terminal wants CSS pixels. */
+const pointsToPixels = (points) => (points * 4) / 3;
+
+function terminalOptions() {
+  return {
+    ...TERMINAL_OPTIONS,
+    fontFamily: options.fontFamily,
+    fontSize: pointsToPixels(options.fontSize),
+  };
+}
+
+/**
+ * Makes everything behind the text this opaque, 30 to 100 percent.
+ * The terminal card is drawn over the window background, so each layer gets
+ * the alpha a with 1 - (1 - a)^2 = opacity: together they come to the opacity chosen.
+ */
+function applyBackgroundOpacity(percent) {
+  const alpha = 1 - Math.sqrt(1 - percent / 100);
+  document.documentElement.style.setProperty('--chrome-alpha', String(alpha));
+}
+
+applyBackgroundOpacity(options.backgroundOpacity);
+
 const TERMINAL_OPTIONS = {
   cursorBlink: true,
-  fontFamily: '"Courier New", "MS Gothic", Menlo, "DejaVu Sans Mono", monospace',
-  fontSize: 12,
+  // the terminal paints no background of its own: the window's shows through
+  allowTransparency: true,
   theme: {
-    background: '#ffffff',
+    background: 'rgba(0, 0, 0, 0)',
     foreground: '#000000',
     cursor: '#000000',
     cursorAccent: '#ffffff',
@@ -81,10 +114,29 @@ const login = {
   keyPath: $('login-key'),
   browse: $('login-browse'),
   term: $('login-term'),
+  encoding: $('login-encoding'),
+  remember: $('login-remember'),
   message: $('login-message'),
   ok: $('login-ok'),
   cancel: $('login-cancel'),
 };
+
+const optionsDialog = {
+  dialog: $('options'),
+  form: $('options-form'),
+  font: $('options-font'),
+  size: $('options-size'),
+  opacity: $('options-opacity'),
+  opacityValue: $('options-opacity-value'),
+  encoding: $('options-encoding'),
+  message: $('options-message'),
+};
+
+const xmodemButton = $('xmodem-send');
+
+for (const select of document.querySelectorAll('select.encodings')) {
+  for (const [label, name] of ENCODINGS) select.add(new Option(name, label));
+}
 
 const hostKey = {
   dialog: $('host-key'),
@@ -112,13 +164,16 @@ let connecting = null;
 let nextSessionId = 1;
 
 class Session {
-  constructor({ host, port, user }) {
+  constructor({ host, port, user, encoding }) {
     this.id = nextSessionId++;
     this.host = host;
     this.port = port;
     this.user = user;
+    this.encoding = encoding;
     /** A shell is running at the other end. */
     this.open = false;
+    /** While an XMODEM upload is under way: `{ sent, total }`. */
+    this.transfer = null;
     /** Once the other end is gone: `{ error, early }`, see `ended`. */
     this.end = null;
     /** Bytes of output drawn since the backend was last told. */
@@ -130,13 +185,16 @@ class Session {
     this.pane.className = 'pane';
     paneArea.append(this.pane);
 
-    this.terminal = new Terminal(TERMINAL_OPTIONS);
+    this.terminal = new Terminal(terminalOptions());
     this.fitter = new FitAddon.FitAddon();
     this.terminal.loadAddon(this.fitter);
     this.terminal.open(this.pane);
     this.fitter.fit();
 
-    this.terminal.onData((text) => this.send('session_write', { data: text }));
+    this.terminal.onData((text) => {
+      // keystrokes would corrupt the file being sent
+      if (!this.transfer) this.send('session_write', { data: text });
+    });
     this.terminal.onBinary((text) => {
       const data = Array.from(text, (char) => char.charCodeAt(0));
       this.send('session_write_bytes', { data });
@@ -151,11 +209,12 @@ class Session {
   }
 
   /** Logs in and starts a shell. Rejects with the backend's description of what went wrong. */
-  async connect({ auth, term }) {
+  async connect({ auth, term, remember }) {
     const { cols, rows } = this.terminal;
+    const target = { host: this.host, port: this.port, user: this.user };
     await invoke('ssh_connect', {
       id: this.id,
-      request: { host: this.host, port: this.port, user: this.user, auth, term, cols, rows },
+      request: { ...target, auth, term, encoding: this.encoding, remember, cols, rows },
       onEvent: this.channel,
     });
     // Output, and even the end of the session, can get here before this does.
@@ -179,8 +238,36 @@ class Session {
       this.terminal.write(output, () => this.acknowledge(output.length));
     } else if (message.type === 'hostKey') {
       askAboutHostKey(this, message);
+    } else if (message.type === 'transferProgress') {
+      this.transfer = { sent: message.sent, total: message.total };
+      if (this === active) showStatus();
+    } else if (message.type === 'transferEnd') {
+      this.transferEnded(message.error);
     } else if (message.type === 'closed') {
       this.ended(message.error);
+    }
+  }
+
+  /** Uploads a file with XMODEM; the remote side has to be waiting for it already. */
+  async sendFile(path) {
+    const total = await invoke('xmodem_send', { id: this.id, path });
+    this.transfer = { sent: 0, total };
+    if (this === active) showStatus();
+  }
+
+  cancelTransfer() {
+    invoke('xmodem_cancel', { id: this.id }).catch(reportError);
+  }
+
+  transferEnded(error) {
+    const total = this.transfer?.total ?? 0;
+    this.transfer = null;
+    if (this !== active) return;
+    showStatus();
+    if (error === null) {
+      showNotice(`XMODEM送信が完了しました（${total.toLocaleString()} バイト）`);
+    } else {
+      reportError(`XMODEM送信を中止しました: ${error}`);
     }
   }
 
@@ -284,6 +371,10 @@ function activate(session) {
   showStatus();
 }
 
+function encodingName(label) {
+  return ENCODINGS.find(([value]) => value === label)?.[1] ?? label;
+}
+
 /** Brings the next (or, with -1, the previous) tab to the front. */
 function cycleTabs(step) {
   const open = [...sessions.values()];
@@ -294,13 +385,34 @@ function cycleTabs(step) {
 
 function showStatus() {
   statusBar.classList.remove('error');
+  updateXmodemButton();
   if (!active) {
     statusBar.textContent = '';
     return;
   }
+  if (active.transfer) {
+    const { sent, total } = active.transfer;
+    const percent = total > 0 ? Math.floor((sent * 100) / total) : 0;
+    statusBar.textContent =
+      `XMODEM送信中  ${sent.toLocaleString()} / ${total.toLocaleString()} バイト (${percent}%)` +
+      '  ― 中止は「XMODEM中止」';
+    return;
+  }
   const { cols, rows } = active.terminal;
   const state = active.open ? '' : '  切断';
-  statusBar.textContent = `${active.description}  SSH2  ${cols}x${rows}${state}`;
+  const encoding = encodingName(active.encoding);
+  statusBar.textContent = `${active.description}  SSH2  ${encoding}  ${cols}x${rows}${state}`;
+}
+
+function updateXmodemButton() {
+  xmodemButton.disabled = !active?.open;
+  xmodemButton.textContent = active?.transfer ? 'XMODEM中止' : 'XMODEM送信...';
+}
+
+/** A passing message in the status bar, gone with the next status update. */
+function showNotice(text) {
+  statusBar.classList.remove('error');
+  statusBar.textContent = text;
 }
 
 function reportError(error) {
@@ -321,6 +433,7 @@ new ResizeObserver(() => {
 
 function openLogin() {
   if (login.dialog.open) return;
+  login.encoding.value = options.encoding;
   restoreLastLogin();
   updateAuthFields();
   showLoginMessage('');
@@ -335,6 +448,24 @@ function updateAuthFields() {
   login.keyPath.disabled = !usesKey;
   login.keyPath.required = usesKey;
   login.browse.disabled = !usesKey;
+  updateRememberedHint();
+}
+
+/** Says so in the empty password field when the backend still remembers one. */
+async function updateRememberedHint() {
+  const usesKey = login.auth.value === 'publicKey';
+  const query = {
+    host: login.host.value.trim(),
+    port: Number(login.port.value),
+    user: login.user.value.trim(),
+    keyPath: usesKey ? login.keyPath.value.trim() : null,
+  };
+  let remembered = false;
+  if (query.host && query.user) {
+    remembered = await invoke('password_remembered', query).catch(() => false);
+  }
+  login.passphrase.placeholder = remembered ? '記憶済み（空欄のままで使います）' : '';
+  if (remembered) login.remember.checked = true;
 }
 
 function showLoginMessage(text, busy = false) {
@@ -377,6 +508,10 @@ function restoreLastLogin() {
   if ([...login.term.options].some((option) => option.value === last.term)) {
     login.term.value = last.term;
   }
+  if (ENCODINGS.some(([label]) => label === last.encoding)) {
+    login.encoding.value = last.encoding;
+  }
+  login.remember.checked = Boolean(last.remember);
 }
 
 function rememberLogin() {
@@ -387,6 +522,8 @@ function rememberLogin() {
     auth: login.auth.value,
     keyPath: login.keyPath.value.trim(),
     term: login.term.value,
+    encoding: login.encoding.value,
+    remember: login.remember.checked,
   };
   localStorage.setItem(LAST_LOGIN_KEY, JSON.stringify(last));
 }
@@ -399,6 +536,7 @@ login.form.addEventListener('submit', async (event) => {
     host: login.host.value.trim(),
     port: Number(login.port.value),
     user: login.user.value.trim(),
+    encoding: login.encoding.value,
   };
   const auth =
     login.auth.value === 'publicKey'
@@ -413,7 +551,7 @@ login.form.addEventListener('submit', async (event) => {
   setLoginBusy(true);
   showLoginMessage('接続中...', true);
   try {
-    await session.connect({ auth, term: login.term.value });
+    await session.connect({ auth, term: login.term.value, remember: login.remember.checked });
   } catch (failure) {
     session.remove();
     showLoginMessage(failure?.kind === 'cancelled' ? '' : describeFailure(failure));
@@ -448,6 +586,9 @@ login.dialog.addEventListener('cancel', (event) => {
 });
 login.dialog.addEventListener('close', () => active?.terminal.focus());
 login.auth.addEventListener('change', updateAuthFields);
+for (const field of [login.host, login.port, login.user, login.keyPath]) {
+  field.addEventListener('change', updateRememberedHint);
+}
 login.browse.addEventListener('click', async () => {
   try {
     const path = await fileDialog.open({ title: '秘密鍵ファイルの選択', multiple: false, directory: false });
@@ -457,6 +598,74 @@ login.browse.addEventListener('click', async () => {
   }
 });
 $('new-connection').addEventListener('click', openLogin);
+
+// ---- options dialog ----
+
+function openOptions() {
+  if (optionsDialog.dialog.open) return;
+  optionsDialog.font.value = options.fontFamily;
+  optionsDialog.size.value = options.fontSize;
+  optionsDialog.opacity.value = options.backgroundOpacity;
+  optionsDialog.opacityValue.value = `${options.backgroundOpacity}%`;
+  optionsDialog.encoding.value = options.encoding;
+  optionsDialog.message.textContent = '';
+  optionsDialog.dialog.showModal();
+}
+
+// The slider shows its effect at once; Cancel puts the saved value back.
+optionsDialog.opacity.addEventListener('input', () => {
+  optionsDialog.opacityValue.value = `${optionsDialog.opacity.value}%`;
+  applyBackgroundOpacity(Number(optionsDialog.opacity.value));
+});
+
+optionsDialog.form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const changed = {
+    fontFamily: optionsDialog.font.value.trim(),
+    fontSize: Number(optionsDialog.size.value),
+    encoding: optionsDialog.encoding.value,
+    backgroundOpacity: Number(optionsDialog.opacity.value),
+  };
+  try {
+    await invoke('options_save', { options: changed });
+  } catch (error) {
+    optionsDialog.message.textContent = `保存できませんでした: ${error}`;
+    return;
+  }
+  options = changed;
+  // Open terminals take the new font at once; fit() then tells their servers the new size.
+  for (const session of sessions.values()) {
+    session.terminal.options.fontFamily = options.fontFamily;
+    session.terminal.options.fontSize = pointsToPixels(options.fontSize);
+    session.fitter.fit();
+  }
+  optionsDialog.dialog.close();
+});
+$('options-cancel').addEventListener('click', () => optionsDialog.dialog.close());
+optionsDialog.dialog.addEventListener('close', () => {
+  // whatever was saved, or the value from before a cancelled preview
+  applyBackgroundOpacity(options.backgroundOpacity);
+  active?.terminal.focus();
+});
+$('open-options').addEventListener('click', openOptions);
+
+// ---- XMODEM ----
+
+xmodemButton.addEventListener('click', async () => {
+  const session = active;
+  if (!session?.open) return;
+  if (session.transfer) {
+    session.cancelTransfer();
+    return;
+  }
+  try {
+    const path = await fileDialog.open({ title: 'XMODEMで送信するファイル', multiple: false, directory: false });
+    if (path) await session.sendFile(path);
+  } catch (error) {
+    reportError(`XMODEM送信を開始できませんでした: ${error}`);
+  }
+  session.terminal.focus();
+});
 
 // ---- host key prompt ----
 

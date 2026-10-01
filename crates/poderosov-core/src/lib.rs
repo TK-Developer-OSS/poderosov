@@ -7,3 +7,4 @@
 pub mod known_hosts;
 pub mod session;
 pub mod ssh;
+pub mod xmodem;

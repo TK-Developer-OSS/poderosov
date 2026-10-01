@@ -9,6 +9,9 @@
   <body>
     <header id="toolbar">
       <button type="button" id="new-connection" title="新規Telnet/SSH接続 (Alt+N)">新規接続...</button>
+      <button type="button" id="xmodem-send" title="相手側で rx などを待ち受けさせてから使う" disabled>XMODEM送信...</button>
+      <span class="spacer"></span>
+      <button type="button" id="open-options">オプション...</button>
     </header>
     <nav id="tabs" role="tablist"></nav>
     <main id="panes">
@@ -42,6 +45,8 @@
               </select>
               <label for="login-passphrase">パスフレーズ</label>
               <input id="login-passphrase" type="password" autocomplete="off" />
+              <span></span>
+              <label class="check"><input type="checkbox" id="login-remember" />パスワードを一時的に記憶する（終了まで）</label>
               <label for="login-key">鍵ファイル</label>
               <div class="file-row">
                 <input id="login-key" autocomplete="off" spellcheck="false" />
@@ -59,6 +64,8 @@
                 <option>vt100</option>
                 <option>kterm</option>
               </select>
+              <label for="login-encoding">エンコーディング</label>
+              <select id="login-encoding" class="encodings"></select>
             </div>
           </fieldset>
         </fieldset>
@@ -88,6 +95,47 @@
         </div>
       </form>
     </dialog>
+
+    <dialog id="options">
+      <form id="options-form">
+        <h1>オプション</h1>
+        <fieldset>
+          <legend>表示</legend>
+          <div class="fields">
+            <label for="options-font">フォント</label>
+            <input id="options-font" list="font-suggestions" required spellcheck="false" />
+            <label for="options-size">サイズ (pt)</label>
+            <input id="options-size" type="number" min="6" max="48" step="0.5" required />
+            <label for="options-opacity">背景の不透明度</label>
+            <div class="range-row">
+              <input id="options-opacity" type="range" min="30" max="100" step="5" />
+              <output id="options-opacity-value" for="options-opacity"></output>
+            </div>
+          </div>
+          <p class="note">カンマ区切りで複数指定でき、前にあるフォントから使われます。</p>
+        </fieldset>
+        <fieldset>
+          <legend>接続</legend>
+          <div class="fields">
+            <label for="options-encoding">エンコーディング</label>
+            <select id="options-encoding" class="encodings"></select>
+          </div>
+          <p class="note">新規接続の初期値です。</p>
+        </fieldset>
+        <p id="options-message" role="status"></p>
+        <div class="buttons">
+          <button type="submit">OK</button>
+          <button type="button" id="options-cancel">キャンセル</button>
+        </div>
+      </form>
+    </dialog>
+    <datalist id="font-suggestions">
+      <option value='"Courier New", "MS Gothic", Menlo, "DejaVu Sans Mono", monospace'></option>
+      <option value='"BIZ UDGothic", monospace'></option>
+      <option value='"MS Gothic", monospace'></option>
+      <option value='Consolas, "MS Gothic", monospace'></option>
+      <option value='"Cascadia Mono", "MS Gothic", monospace'></option>
+    </datalist>
 
     <div id="context-menu" role="menu" hidden>
       <button type="button" role="menuitem" id="menu-copy"><span>コピー</span><kbd>Alt+C</kbd></button>

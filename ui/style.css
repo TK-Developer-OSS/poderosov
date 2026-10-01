@@ -267,3 +267,168 @@ fieldset {
   font: inherit;
   opacity: 0.7;
 }
+
+/* ---- softer look: rounded corners and lighter edges ---- */
+
+:root {
+  --chrome: #f3f4f6;
+  --edge: #c9cdd3;
+  --radius: 6px;
+}
+
+button,
+input,
+select {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 3px 10px;
+}
+
+button:hover:enabled {
+  background: #e8f1fb;
+  border-color: #9cc3ea;
+}
+
+button:disabled {
+  opacity: 0.55;
+}
+
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: 2px solid rgb(0 120 215 / 0.35);
+  outline-offset: 1px;
+}
+
+#toolbar,
+#status {
+  border-color: #e1e4e8;
+}
+
+.tab {
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: #e6e8eb;
+}
+
+.tab-close {
+  border: none;
+  border-radius: 50%;
+  padding: 0 5px;
+  background: none;
+}
+
+/* the terminal sits in a rounded card instead of filling the window edge to edge */
+#panes {
+  margin: 0 6px 6px;
+  border: 1px solid var(--edge);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  overflow: hidden;
+}
+
+dialog {
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 0.18);
+}
+
+fieldset {
+  border-color: #dde0e4;
+  border-radius: var(--radius);
+}
+
+#login-fields {
+  border-radius: 0;
+}
+
+#context-menu {
+  padding: 4px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.16);
+}
+
+#context-menu button {
+  border: none;
+  border-radius: 4px;
+  background: none;
+}
+
+#tabs {
+  padding: 4px 6px 0;
+}
+
+/* ---- toolbar, options ---- */
+
+#toolbar .spacer {
+  flex: 1;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.check input {
+  margin: 0;
+  padding: 0;
+}
+
+.note {
+  margin: 6px 0 0;
+  color: #666;
+  font-size: 11px;
+}
+
+#options form {
+  width: 420px;
+}
+
+#options-message {
+  min-height: 1.2em;
+  margin: 8px 0 0;
+  color: var(--alarm);
+}
+
+/* ---- translucent background ----
+   The window itself is transparent. Everything behind the text is painted
+   with --chrome-alpha (set from the options), so text stays solid while the
+   desktop shows through. The terminal card sits on top of the window
+   background, so main.js picks the alpha such that the two layers together
+   come to the opacity the user chose. */
+
+body {
+  background: rgb(243 244 246 / var(--chrome-alpha, 1));
+}
+
+#panes {
+  background: rgb(255 255 255 / var(--chrome-alpha, 1));
+}
+
+.tab {
+  background: rgb(230 232 235 / var(--chrome-alpha, 1));
+}
+
+.tab.active {
+  background: rgb(255 255 255 / var(--chrome-alpha, 1));
+}
+
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-row input {
+  flex: 1;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.range-row output {
+  min-width: 3em;
+  text-align: right;
+}
