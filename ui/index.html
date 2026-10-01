@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>PoderosoV</title>
+    <link rel="stylesheet" href="vendor/xterm/xterm.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header id="toolbar">
+      <button type="button" id="new-connection" title="新規Telnet/SSH接続 (Alt+N)">新規接続...</button>
+    </header>
+    <nav id="tabs" role="tablist"></nav>
+    <main id="panes">
+      <p id="welcome">「新規接続」または Alt+N で接続を開始します。</p>
+    </main>
+    <footer id="status"></footer>
+
+    <dialog id="login">
+      <form id="login-form">
+        <h1>新規Telnet/SSH接続</h1>
+        <fieldset id="login-fields">
+          <div class="fields">
+            <label for="login-host">ホスト</label>
+            <input id="login-host" required autocomplete="off" spellcheck="false" />
+            <label for="login-protocol">プロトコル</label>
+            <select id="login-protocol">
+              <option value="ssh2">SSH2</option>
+            </select>
+            <label for="login-port">ポート</label>
+            <input id="login-port" type="number" min="1" max="65535" value="22" required />
+          </div>
+          <fieldset>
+            <legend>SSHパラメータ</legend>
+            <div class="fields">
+              <label for="login-user">アカウント</label>
+              <input id="login-user" required autocomplete="off" spellcheck="false" />
+              <label for="login-auth">認証方法</label>
+              <select id="login-auth">
+                <option value="password">パスワード</option>
+                <option value="publicKey">公開鍵</option>
+              </select>
+              <label for="login-passphrase">パスフレーズ</label>
+              <input id="login-passphrase" type="password" autocomplete="off" />
+              <label for="login-key">鍵ファイル</label>
+              <div class="file-row">
+                <input id="login-key" autocomplete="off" spellcheck="false" />
+                <button type="button" id="login-browse">参照...</button>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>ターミナル</legend>
+            <div class="fields">
+              <label for="login-term">種類</label>
+              <select id="login-term">
+                <option>xterm</option>
+                <option>xterm-256color</option>
+                <option>vt100</option>
+                <option>kterm</option>
+              </select>
+            </div>
+          </fieldset>
+        </fieldset>
+        <p id="login-message" role="status"></p>
+        <div class="buttons">
+          <button type="submit" id="login-ok">OK</button>
+          <button type="button" id="login-cancel">キャンセル</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="host-key">
+      <form method="dialog">
+        <h1>SSHホスト鍵の確認</h1>
+        <p id="host-key-message"></p>
+        <dl>
+          <dt>ホスト</dt>
+          <dd id="host-key-host"></dd>
+          <dt>鍵の種類</dt>
+          <dd id="host-key-algorithm"></dd>
+          <dt>フィンガープリント</dt>
+          <dd id="host-key-fingerprint"></dd>
+        </dl>
+        <div class="buttons">
+          <button value="yes">はい</button>
+          <button value="no" id="host-key-no">いいえ</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="context-menu" role="menu" hidden>
+      <button type="button" role="menuitem" id="menu-copy"><span>コピー</span><kbd>Alt+C</kbd></button>
+      <button type="button" role="menuitem" id="menu-paste"><span>貼り付け</span><kbd>Alt+V</kbd></button>
+    </div>
+
+    <script src="vendor/xterm/xterm.js"></script>
+    <script src="vendor/xterm/addon-fit.js"></script>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

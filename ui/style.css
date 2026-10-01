@@ -1,0 +1,269 @@
+:root {
+  color-scheme: light;
+  --chrome: #f0f0f0;
+  --edge: #adadad;
+  --accent: #0078d7;
+  --alarm: #b00020;
+  font: 12px "Yu Gothic UI", "Meiryo UI", "Segoe UI", system-ui, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--chrome);
+  color: #000;
+  cursor: default;
+  user-select: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+#toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 3px 4px;
+  border-bottom: 1px solid #d4d4d4;
+}
+
+/* ---- tabs ---- */
+
+#tabs {
+  display: flex;
+  gap: 2px;
+  min-height: 23px;
+  padding: 3px 4px 0;
+  border-bottom: 1px solid var(--edge);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 220px;
+  margin-bottom: -1px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 3px 3px 0 0;
+  background: #e1e1e1;
+}
+
+.tab.active {
+  border-bottom-color: #fff;
+  background: #fff;
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close {
+  padding: 0 4px;
+  border: none;
+  border-radius: 2px;
+  background: none;
+  line-height: 1.2;
+}
+
+.tab-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+/* ---- terminals ---- */
+
+#panes {
+  position: relative;
+  background: #fff;
+}
+
+/* Every terminal stays laid out so that it can be measured and resized while
+   another one is in front; only the active one is shown. */
+.pane {
+  position: absolute;
+  inset: 0;
+  padding: 2px 0 0 4px;
+  visibility: hidden;
+}
+
+.pane.active {
+  visibility: visible;
+}
+
+#welcome {
+  margin: 0;
+  padding: 24px;
+  color: #666;
+}
+
+#status {
+  min-height: 16px;
+  padding: 2px 8px;
+  overflow: hidden;
+  border-top: 1px solid #d4d4d4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#status.error {
+  color: var(--alarm);
+}
+
+/* ---- dialogs ---- */
+
+dialog {
+  padding: 0;
+  border: 1px solid #888;
+  border-radius: 4px;
+  background: var(--chrome);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.3);
+  color: inherit;
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 0.2);
+}
+
+dialog form {
+  width: 360px;
+  padding: 14px 16px;
+}
+
+dialog h1 {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+fieldset {
+  min-width: 0;
+  margin: 10px 0 0;
+  padding: 8px 10px 10px;
+  border: 1px solid #c8c8c8;
+}
+
+#login-fields {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 7em minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.fields input,
+.fields select {
+  min-width: 0;
+  padding: 2px 4px;
+  user-select: text;
+}
+
+.file-row {
+  display: flex;
+  gap: 4px;
+}
+
+.file-row input {
+  flex: 1;
+}
+
+.buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.buttons button {
+  min-width: 84px;
+  padding: 3px 10px;
+}
+
+#login-message {
+  min-height: 1.5em;
+  margin: 10px 0 0;
+  color: var(--alarm);
+  user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#login-message.busy {
+  color: #333;
+}
+
+#host-key form {
+  width: 440px;
+}
+
+#host-key p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+#host-key.changed p {
+  color: var(--alarm);
+  font-weight: bold;
+}
+
+#host-key dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 12px 0 0;
+}
+
+#host-key dd {
+  margin: 0;
+  font-family: Consolas, Menlo, monospace;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+/* ---- terminal context menu ---- */
+
+#context-menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 170px;
+  padding: 3px 0;
+  border: 1px solid #999;
+  background: #f9f9f9;
+  box-shadow: 2px 2px 6px rgb(0 0 0 / 0.25);
+}
+
+#context-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  padding: 4px 14px;
+  border: none;
+  background: none;
+}
+
+#context-menu button:hover:enabled {
+  background: var(--accent);
+  color: #fff;
+}
+
+#context-menu kbd {
+  font: inherit;
+  opacity: 0.7;
+}
