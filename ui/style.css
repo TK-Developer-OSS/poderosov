@@ -408,14 +408,11 @@ body {
   background: var(--chrome);
 }
 
-/* The frame is a border rather than a margin: a margin would leave
-   see-through gaps around the terminal. */
+/* As in Poderosa, the terminal reaches the window edges with no frame. */
 #panes {
   margin: 0;
-  border: 6px solid var(--chrome);
-  border-top: none;
+  border: none;
   border-radius: 0;
-  box-shadow: inset 0 0 0 1px var(--edge);
   background: var(--terminal-bg, #fff);
 }
 
