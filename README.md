@@ -1,7 +1,13 @@
 # PoderosoV
 
+**Inspired by [Poderosa 4.x](https://github.com/poderosaproject/poderosa)**
+
 SSH ターミナル Poderosa 4.x の操作感を、Rust + Tauri で作り直すプロジェクトです。
 fork ではなく再実装で、Windows / macOS / Linux で動くことを目指します。
+
+長年にわたり Poderosa を開発・公開してくださった Poderosa Project の皆さんに敬意を表します。
+PoderosoV は Poderosa のコードを含まない独立した実装で、Poderosa Project とは関係ありません。
+ショートカットファイル (.gts) の形式は、Poderosa（Apache License 2.0）のソースを参照して互換にしています。
 
 ## 現状
 

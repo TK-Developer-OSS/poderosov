@@ -3204,6 +3204,8 @@ name = "poderosov-core"
 version = "5.0.0"
 dependencies = [
  "bytes",
+ "encoding_rs",
+ "quick-xml 0.42.0",
  "russh",
  "tempfile",
  "thiserror 2.0.21",

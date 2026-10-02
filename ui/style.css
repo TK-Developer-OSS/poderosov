@@ -446,3 +446,135 @@ body {
 .xterm .xterm-viewport {
   background-color: transparent !important;
 }
+
+/* ---- menu bar ---- */
+
+body {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+#menubar {
+  display: flex;
+  padding: 1px 2px;
+  background: var(--chrome);
+}
+
+.menu {
+  position: relative;
+}
+
+.menu-title {
+  padding: 2px 9px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+}
+
+.menu-title:hover:enabled,
+.menu.open .menu-title {
+  background: #dde3ea;
+  border-color: transparent;
+}
+
+.menu-items {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  min-width: 240px;
+  padding: 4px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: #f9f9f9;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.16);
+}
+
+.menu-items button {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menu-items button:hover:enabled {
+  background: var(--accent);
+  color: #fff;
+}
+
+.menu-items kbd {
+  font: inherit;
+  opacity: 0.7;
+}
+
+.menu-items hr {
+  margin: 4px 6px;
+  border: none;
+  border-top: 1px solid #ddd;
+}
+
+.menu-items .empty {
+  padding: 4px 12px;
+  color: #888;
+}
+
+.menu-items .path {
+  max-width: 220px;
+  overflow: hidden;
+  opacity: 0.6;
+  text-overflow: ellipsis;
+}
+
+/* ---- toolbar, Poderosa style ---- */
+
+#toolbar {
+  align-items: center;
+}
+
+#toolbar .tool {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+}
+
+#toolbar svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#toolbar .separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: #cfd3d8;
+}
+
+.tool-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool-field select {
+  padding: 1px 4px;
+}
+
+#welcome p {
+  margin: 0 0 6px;
+}
+
+#welcome .credit {
+  color: #999;
+  font-size: 11px;
+}

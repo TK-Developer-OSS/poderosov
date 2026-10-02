@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -39,8 +39,7 @@ impl Default for Options {
 }
 
 fn options_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app.path().app_config_dir().map_err(|error| error.to_string())?;
-    Ok(directory.join("options.json"))
+    Ok(crate::paths::config_dir(app)?.join("options.json"))
 }
 
 /// The saved options, or the defaults where nothing (valid) was saved.

@@ -46,10 +46,36 @@ struct Entry {
     host_key_answer: Option<oneshot::Sender<bool>>,
     /// Once the shell is running.
     handle: Option<SessionHandle>,
-    /// What the remote side reads and writes text as.
-    encoding: &'static Encoding,
+    /// How text is exchanged; the toolbar can change it while connected.
+    text: Arc<Mutex<TextSettings>>,
     flow: Arc<FlowControl>,
     transfer: Arc<Mutex<Transfer>>,
+}
+
+/// How a session's text is converted on its way to and from the server.
+#[derive(Clone, Copy)]
+struct TextSettings {
+    /// What the remote side reads and writes text as.
+    encoding: &'static Encoding,
+    /// What the Enter key sends.
+    newline: &'static str,
+}
+
+impl TextSettings {
+    fn new(encoding: &str, newline: &str) -> Self {
+        Self {
+            encoding: Encoding::for_label(encoding.as_bytes()).unwrap_or(UTF_8),
+            newline: match newline {
+                "LF" => "\n",
+                "CRLF" => "\r\n",
+                _ => "\r",
+            },
+        }
+    }
+}
+
+fn lock_text(text: &Mutex<TextSettings>) -> MutexGuard<'_, TextSettings> {
+    text.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Sessions {
@@ -158,6 +184,9 @@ pub struct ConnectRequest {
     term: String,
     /// WHATWG label, e.g. `utf-8`, `euc-jp`, `shift_jis`.
     encoding: String,
+    /// What Enter sends: `CR`, `LF` or `CRLF`.
+    #[serde(default)]
+    newline: String,
     /// Keep the password (or passphrase) until the application exits.
     remember: bool,
     cols: u32,
@@ -331,10 +360,8 @@ impl HostKeyPrompter for WindowPrompter {
 }
 
 fn known_hosts(app: &AppHandle) -> Result<KnownHosts, ConnectFailure> {
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| ConnectFailure::new(FailureKind::KnownHosts, error.to_string()))?;
+    let directory = crate::paths::config_dir(app)
+        .map_err(|error| ConnectFailure::new(FailureKind::KnownHosts, error))?;
     Ok(KnownHosts::new(directory.join("ssh_known_hosts")))
 }
 
@@ -364,7 +391,7 @@ pub async fn ssh_connect(
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<(), ConnectFailure> {
     let known_hosts = known_hosts(&app)?;
-    let encoding = Encoding::for_label(request.encoding.as_bytes()).unwrap_or(UTF_8);
+    let text = Arc::new(Mutex::new(TextSettings::new(&request.encoding, &request.newline)));
 
     // An empty field means: use what was remembered, if anything was.
     let password_key = request.auth.password_key(&request);
@@ -387,7 +414,7 @@ pub async fn ssh_connect(
             cancel: Some(cancel_tx),
             host_key_answer: None,
             handle: None,
-            encoding,
+            text: text.clone(),
             flow: flow.clone(),
             transfer: transfer.clone(),
         },
@@ -436,7 +463,7 @@ pub async fn ssh_connect(
         entry.cancel = None;
         entry.handle = Some(handle);
     }
-    let forwarder = Forwarder { app, id, on_event, flow, transfer, encoding };
+    let forwarder = Forwarder { app, id, on_event, flow, transfer, text };
     tauri::async_runtime::spawn(forwarder.run(events_rx));
     Ok(())
 }
@@ -449,13 +476,13 @@ struct Forwarder {
     on_event: Channel<InvokeResponseBody>,
     flow: Arc<FlowControl>,
     transfer: Arc<Mutex<Transfer>>,
-    encoding: &'static Encoding,
+    text: Arc<Mutex<TextSettings>>,
 }
 
 impl Forwarder {
     async fn run(self, mut events: mpsc::Receiver<SessionEvent>) {
         // UTF-8 goes through untouched: the terminal decodes it itself.
-        let mut decoder = (self.encoding != UTF_8).then(|| self.encoding.new_decoder());
+        let mut decoding: Option<(&'static Encoding, Decoder)> = None;
         let mut ticker = tokio::time::interval(TRANSFER_TICK);
         let mut closed = None;
 
@@ -497,7 +524,12 @@ impl Forwarder {
                     Err(_) => break,
                 }
             }
-            if let Some(decoder) = decoder.as_mut() {
+            // The encoding can be switched from the toolbar at any time.
+            let encoding = lock_text(&self.text).encoding;
+            if decoding.as_ref().map(|(current, _)| *current) != Some(encoding) {
+                decoding = (encoding != UTF_8).then(|| (encoding, encoding.new_decoder()));
+            }
+            if let Some((_, decoder)) = decoding.as_mut() {
                 batch = decode(decoder, &batch);
             }
             self.flow.sent(batch.len());
@@ -595,15 +627,26 @@ pub fn host_key_reply(sessions: State<'_, Sessions>, id: u32, accept: bool) {
     }
 }
 
-/// Typed or pasted text, sent in the session's encoding.
+/// Typed or pasted text, sent in the session's encoding. The terminal turns
+/// Enter into CR; it goes out as the newline the session is set to.
 #[tauri::command]
 pub fn session_write(sessions: State<'_, Sessions>, id: u32, data: String) {
-    let encoding = match sessions.lock().get(&id) {
-        Some(entry) => entry.encoding,
+    let text = match sessions.lock().get(&id) {
+        Some(entry) => *lock_text(&entry.text),
         None => return,
     };
-    let (bytes, _, _) = encoding.encode(&data);
+    let data = if text.newline == "\r" { data } else { data.replace('\r', text.newline) };
+    let (bytes, _, _) = text.encoding.encode(&data);
     sessions.write(id, bytes.into_owned());
+}
+
+/// Changes the encoding and the newline of an open session, as the
+/// toolbar's drop-downs do.
+#[tauri::command]
+pub fn session_configure(sessions: State<'_, Sessions>, id: u32, encoding: String, newline: String) {
+    if let Some(entry) = sessions.lock().get(&id) {
+        *lock_text(&entry.text) = TextSettings::new(&encoding, &newline);
+    }
 }
 
 /// Input that is not text, such as the mouse reports of some terminal modes.

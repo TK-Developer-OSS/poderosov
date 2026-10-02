@@ -8,14 +8,13 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// Fields that must never reach the disk.
 const SECRETS: &[&str] = &["password", "passphrase"];
 
 fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app.path().app_config_dir().map_err(|error| error.to_string())?;
-    Ok(directory.join("history.json"))
+    Ok(crate::paths::config_dir(app)?.join("history.json"))
 }
 
 /// The saved connections, most recent first; empty if there are none.

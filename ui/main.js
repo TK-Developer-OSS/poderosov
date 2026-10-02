@@ -141,6 +141,7 @@ const login = {
   browse: $('login-browse'),
   term: $('login-term'),
   encoding: $('login-encoding'),
+  newline: $('login-newline'),
   remember: $('login-remember'),
   message: $('login-message'),
   ok: $('login-ok'),
@@ -161,6 +162,8 @@ const optionsDialog = {
 };
 
 const xmodemButton = $('xmodem-send');
+const toolNewline = $('tool-newline');
+const toolEncoding = $('tool-encoding');
 
 for (const select of document.querySelectorAll('select.encodings')) {
   for (const [label, name] of ENCODINGS) select.add(new Option(name, label));
@@ -194,12 +197,15 @@ let nextSessionId = 1;
 applyColors(options);
 
 class Session {
-  constructor({ host, port, user, encoding }) {
+  constructor({ host, port, user, encoding, newline }) {
     this.id = nextSessionId++;
     this.host = host;
     this.port = port;
     this.user = user;
     this.encoding = encoding;
+    this.newline = newline;
+    /** How the login went, without secrets: kept for saving a shortcut. */
+    this.login = null;
     /** A shell is running at the other end. */
     this.open = false;
     /** While an XMODEM upload is under way: `{ sent, total }`. */
@@ -242,17 +248,43 @@ class Session {
   async connect({ auth, term, remember }) {
     const { cols, rows } = this.terminal;
     const target = { host: this.host, port: this.port, user: this.user };
+    const text = { encoding: this.encoding, newline: this.newline };
     await invoke('ssh_connect', {
       id: this.id,
-      request: { ...target, auth, term, encoding: this.encoding, remember, cols, rows },
+      request: { ...target, ...text, auth, term, remember, cols, rows },
       onEvent: this.channel,
     });
+    this.login = { auth: auth.method, keyPath: auth.keyPath ?? '', term };
     // Output, and even the end of the session, can get here before this does.
     this.open = this.end === null;
     // the window may have been resized while the login was under way
     if (this.terminal.cols !== cols || this.terminal.rows !== rows) {
       this.send('session_resize', { cols: this.terminal.cols, rows: this.terminal.rows });
     }
+  }
+
+  /** Switches encoding and newline while connected, from the toolbar. */
+  configure({ encoding = this.encoding, newline = this.newline }) {
+    this.encoding = encoding;
+    this.newline = newline;
+    this.send('session_configure', { encoding, newline });
+    if (this === active) showStatus();
+  }
+
+  /** The connection as a shortcut file describes it. */
+  shortcut() {
+    return {
+      caption: this.host,
+      protocol: 'ssh2',
+      host: this.host,
+      port: this.port,
+      user: this.user,
+      auth: this.login?.auth ?? 'password',
+      keyPath: this.login?.keyPath ?? '',
+      term: this.login?.term ?? 'xterm',
+      encoding: this.encoding,
+      newline: this.newline,
+    };
   }
 
   send(command, args) {
@@ -434,9 +466,16 @@ function showStatus() {
   statusBar.textContent = `${active.description}  SSH2  ${encoding}  ${cols}x${rows}${state}`;
 }
 
+/** Enables what applies to the session in front, and shows its settings in the toolbar. */
 function updateXmodemButton() {
-  xmodemButton.disabled = !active?.open;
+  for (const control of document.querySelectorAll('[data-needs]')) {
+    control.disabled = control.dataset.needs === 'open' ? !active?.open : !active;
+  }
   xmodemButton.textContent = active?.transfer ? 'XMODEM中止' : 'XMODEM送信...';
+  if (active) {
+    toolNewline.value = active.newline;
+    toolEncoding.value = active.encoding;
+  }
 }
 
 /** A passing message in the status bar, gone with the next status update. */
@@ -461,12 +500,15 @@ new ResizeObserver(() => {
 
 // ---- login dialog ----
 
-function openLogin() {
+/** Opens the login dialog, filled from `entry` (e.g. a shortcut) or else the last connection. */
+function openLogin(entry = null) {
   if (login.dialog.open) return;
   login.encoding.value = options.encoding;
+  login.newline.value = 'CR';
   fillHistoryList();
   // the last connection, as Poderosa does
-  if (history.length) fillLogin(history[0]);
+  const prefill = entry ?? history[0];
+  if (prefill) fillLogin(prefill);
   updateAuthFields();
   showLoginMessage('');
   login.passphrase.value = '';
@@ -536,6 +578,7 @@ function fillLogin(entry) {
   if (ENCODINGS.some(([label]) => label === entry.encoding)) {
     login.encoding.value = entry.encoding;
   }
+  login.newline.value = ['LF', 'CRLF'].includes(entry.newline) ? entry.newline : 'CR';
   login.remember.checked = Boolean(entry.remember);
   login.passphrase.value = '';
 }
@@ -562,6 +605,7 @@ function addToHistory() {
     keyPath: login.keyPath.value.trim(),
     term: login.term.value,
     encoding: login.encoding.value,
+    newline: login.newline.value,
     remember: login.remember.checked,
   };
   const same = (other) =>
@@ -579,6 +623,7 @@ login.form.addEventListener('submit', async (event) => {
     port: Number(login.port.value),
     user: login.user.value.trim(),
     encoding: login.encoding.value,
+    newline: login.newline.value,
   };
   const auth =
     login.auth.value === 'publicKey'
@@ -646,7 +691,6 @@ login.browse.addEventListener('click', async () => {
     showLoginMessage(String(error));
   }
 });
-$('new-connection').addEventListener('click', openLogin);
 
 // ---- options dialog ----
 
@@ -708,11 +752,9 @@ optionsDialog.dialog.addEventListener('close', () => {
   applyColors(options);
   active?.terminal.focus();
 });
-$('open-options').addEventListener('click', openOptions);
-
 // ---- XMODEM ----
 
-xmodemButton.addEventListener('click', async () => {
+async function xmodemSendOrCancel() {
   const session = active;
   if (!session?.open) return;
   if (session.transfer) {
@@ -726,7 +768,140 @@ xmodemButton.addEventListener('click', async () => {
     reportError(`XMODEM送信を開始できませんでした: ${error}`);
   }
   session.terminal.focus();
-});
+}
+
+// ---- shortcut files (*.gts) ----
+
+const GTS_FILTERS = [{ name: 'Terminal Shortcut', extensions: ['gts'] }];
+
+/** Opens the login dialog filled from a shortcut file; the password is asked for there. */
+async function openShortcut(path = null) {
+  if (!path) {
+    path = await fileDialog.open({ title: 'ショートカットを開く', multiple: false, filters: GTS_FILTERS });
+    if (!path) return;
+  }
+  let shortcut;
+  try {
+    shortcut = await invoke('gts_open', { path });
+  } catch (error) {
+    reportError(`ショートカットを開けませんでした: ${error}`);
+    return;
+  }
+  if (shortcut.protocol !== 'ssh2') {
+    const name = shortcut.protocol === 'telnet' ? 'Telnet' : 'SSH1';
+    reportError(`${name} の接続にはまだ対応していません: ${path}`);
+    return;
+  }
+  openLogin(shortcut);
+}
+
+async function saveShortcut() {
+  const session = active;
+  if (!session) return;
+  const path = await fileDialog.save({
+    title: 'ショートカットを保存',
+    defaultPath: `${session.host}.gts`,
+    filters: GTS_FILTERS,
+  });
+  if (!path) return;
+  try {
+    await invoke('gts_save', { path, shortcut: session.shortcut() });
+    showNotice(`ショートカットを保存しました: ${path}`);
+  } catch (error) {
+    reportError(`ショートカットを保存できませんでした: ${error}`);
+  }
+}
+
+/** Fills the File menu's list: recent shortcuts, then those found in the current folder. */
+async function fillShortcutMenu() {
+  const list = $('menu-file-shortcuts');
+  let shortcuts = [];
+  try {
+    shortcuts = await invoke('gts_list');
+  } catch (error) {
+    reportError(error);
+  }
+  list.replaceChildren();
+  if (shortcuts.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = '（ショートカットはありません）';
+    list.append(empty);
+    return;
+  }
+  for (const { path, shortcut } of shortcuts) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.title = path;
+    const name = document.createElement('span');
+    name.textContent = shortcut.caption || historyLabel(shortcut);
+    const where = document.createElement('span');
+    where.className = 'path';
+    where.textContent = path.split(/[\\/]/).pop();
+    item.append(name, where);
+    item.addEventListener('click', () => {
+      closeMenus();
+      openShortcut(path);
+    });
+    list.append(item);
+  }
+}
+
+// ---- menu bar and toolbar ----
+
+const COMMANDS = {
+  'new-connection': () => openLogin(),
+  'open-shortcut': () => openShortcut(),
+  'save-shortcut': saveShortcut,
+  exit: () => window.__TAURI__.window.getCurrentWindow().close(),
+  copy: copySelection,
+  paste: pasteClipboard,
+  'close-session': () => active?.close(),
+  xmodem: xmodemSendOrCancel,
+  options: openOptions,
+};
+
+function runCommand(name) {
+  closeMenus();
+  Promise.resolve(COMMANDS[name]?.()).catch(reportError);
+}
+
+for (const control of document.querySelectorAll('[data-command]')) {
+  control.addEventListener('click', () => runCommand(control.dataset.command));
+}
+
+function closeMenus() {
+  for (const menu of document.querySelectorAll('.menu.open')) {
+    menu.classList.remove('open');
+    menu.querySelector('.menu-items').hidden = true;
+  }
+}
+
+function openMenu(menu) {
+  closeMenus();
+  menu.classList.add('open');
+  menu.querySelector('.menu-items').hidden = false;
+  if (menu.querySelector('#menu-file')) fillShortcutMenu();
+}
+
+for (const menu of document.querySelectorAll('.menu')) {
+  const title = menu.querySelector('.menu-title');
+  title.addEventListener('click', () => (menu.classList.contains('open') ? closeMenus() : openMenu(menu)));
+  // as in a native menu bar: once one menu is open, pointing at another opens it
+  title.addEventListener('mouseenter', () => {
+    if (document.querySelector('.menu.open') && !menu.classList.contains('open')) openMenu(menu);
+  });
+}
+window.addEventListener(
+  'mousedown',
+  (event) => {
+    if (!event.target.closest('.menu')) closeMenus();
+  },
+  true,
+);
+
+toolNewline.addEventListener('change', () => active?.configure({ newline: toolNewline.value }));
+toolEncoding.addEventListener('change', () => active?.configure({ encoding: toolEncoding.value }));
 
 // ---- host key prompt ----
 
@@ -845,6 +1020,15 @@ window.addEventListener(
   (event) => {
     if (event.isComposing) return;
     hideContextMenu();
+    if (document.querySelector('.menu.open')) {
+      closeMenus();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        active?.terminal.focus();
+        return;
+      }
+    }
     // Stops the webview, not the terminal: F5 or Ctrl+R still reach the shell.
     if (isWebviewShortcut(event)) event.preventDefault();
     if (document.querySelector('dialog[open]')) return;
@@ -860,3 +1044,6 @@ window.addEventListener(
 
 window.addEventListener('error', (event) => reportError(event.message));
 window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
+
+// Nothing is open yet: show the toolbar and menus in that state.
+showStatus();

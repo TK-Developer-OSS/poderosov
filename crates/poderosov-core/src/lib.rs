@@ -4,6 +4,7 @@
 //! through a [`session::SessionHandle`] and renders the
 //! [`session::SessionEvent`]s it produces.
 
+pub mod gts;
 pub mod known_hosts;
 pub mod session;
 pub mod ssh;

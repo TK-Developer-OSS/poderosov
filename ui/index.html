@@ -7,15 +7,76 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <nav id="menubar">
+      <div class="menu">
+        <button type="button" class="menu-title">ファイル</button>
+        <div class="menu-items" id="menu-file" hidden>
+          <button type="button" data-command="new-connection"><span>新規Telnet/SSH接続...</span><kbd>Alt+N</kbd></button>
+          <button type="button" data-command="open-shortcut"><span>ショートカットを開く...</span></button>
+          <button type="button" data-command="save-shortcut" data-needs="session"><span>ショートカットを保存...</span></button>
+          <hr />
+          <div id="menu-file-shortcuts"></div>
+          <hr />
+          <button type="button" data-command="exit"><span>終了</span></button>
+        </div>
+      </div>
+      <div class="menu">
+        <button type="button" class="menu-title">編集</button>
+        <div class="menu-items" hidden>
+          <button type="button" data-command="copy" data-needs="session"><span>コピー</span><kbd>Alt+C</kbd></button>
+          <button type="button" data-command="paste" data-needs="open"><span>貼り付け</span><kbd>Alt+V</kbd></button>
+        </div>
+      </div>
+      <div class="menu">
+        <button type="button" class="menu-title">コンソール</button>
+        <div class="menu-items" hidden>
+          <button type="button" data-command="close-session" data-needs="session"><span>閉じる</span></button>
+        </div>
+      </div>
+      <div class="menu">
+        <button type="button" class="menu-title">ツール</button>
+        <div class="menu-items" hidden>
+          <button type="button" data-command="xmodem" data-needs="open"><span>XMODEM送信...</span></button>
+          <hr />
+          <button type="button" data-command="options"><span>オプション...</span></button>
+        </div>
+      </div>
+    </nav>
     <header id="toolbar">
-      <button type="button" id="new-connection" title="新規Telnet/SSH接続 (Alt+N)">新規接続...</button>
-      <button type="button" id="xmodem-send" title="相手側で rx などを待ち受けさせてから使う" disabled>XMODEM送信...</button>
+      <button type="button" class="tool" data-command="new-connection" title="新規Telnet/SSH接続 (Alt+N)">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="9" rx="1.5" /><path d="M4 6l2 1.5L4 9M7.5 9H10M5 13.5h6" /></svg>
+        新規接続
+      </button>
+      <button type="button" class="tool" data-command="open-shortcut" title="ショートカットを開く">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4.5v8h11l2-6h-11l-2 6M1.5 4.5V3h4l1 1.5h6v2" /></svg>
+        開く
+      </button>
+      <button type="button" class="tool" data-command="save-shortcut" data-needs="session" title="ショートカットを保存">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h9l2 2v9h-11zM5 2.5v3.5h5V2.5M5 13.5v-4h6v4" /></svg>
+        保存
+      </button>
+      <span class="separator"></span>
+      <label class="tool-field">改行
+        <select id="tool-newline" data-needs="open">
+          <option value="CR">CR</option>
+          <option value="LF">LF</option>
+          <option value="CRLF">CR+LF</option>
+        </select>
+      </label>
+      <label class="tool-field">エンコーディング
+        <select id="tool-encoding" class="encodings" data-needs="open"></select>
+      </label>
+      <span class="separator"></span>
+      <button type="button" class="tool" id="xmodem-send" data-command="xmodem" data-needs="open" title="相手側で rx などを待ち受けさせてから使う">XMODEM送信...</button>
       <span class="spacer"></span>
-      <button type="button" id="open-options">オプション...</button>
+      <button type="button" class="tool" data-command="options">オプション...</button>
     </header>
     <nav id="tabs" role="tablist"></nav>
     <main id="panes">
-      <p id="welcome">「新規接続」または Alt+N で接続を開始します。</p>
+      <div id="welcome">
+        <p>「新規接続」または Alt+N で接続を開始します。</p>
+        <p class="credit">PoderosoV — Inspired by Poderosa 4.x</p>
+      </div>
     </main>
     <footer id="status"></footer>
 
@@ -68,6 +129,12 @@
               </select>
               <label for="login-encoding">エンコーディング</label>
               <select id="login-encoding" class="encodings"></select>
+              <label for="login-newline">改行</label>
+              <select id="login-newline">
+                <option value="CR">CR</option>
+                <option value="LF">LF</option>
+                <option value="CRLF">CR+LF</option>
+              </select>
             </div>
           </fieldset>
         </fieldset>
